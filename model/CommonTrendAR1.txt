@@ -1,0 +1,37 @@
+model.nimble <- nimbleCode({
+
+    # Priors for standard deviations (must be positive)
+    sd_gamma ~ T(dt(0, 1, 1), 0, Inf)
+    sd_mu ~ T(dt(0, 1, 1), 0, Inf)
+    phi ~ dunif(-1, 1)
+
+    # Prior for the global mean of mu_x
+    mu_mu ~ dnorm(0, 2)  # Now mu_mu follows a normal distribution
+
+    # Fixing the first value of gamma to 0
+    gamma[1] <- 0  # Ensures that mu_x sets the scale
+
+    # Process for gamma (common trend, changes over time)
+    for (t in 1:(n - 1)) {
+        gamma[t + 1] ~ dnorm(phi * gamma[t], sd = sd_gamma)  # Random walk process
+    }
+
+    # Priors for process errors
+    for (i in 1:nb_series) {
+        sd_x[i] ~ T(dt(0, 1, 1), 0, Inf)
+    }
+
+    # Priors for mu_x (shifts for each series)
+    for (i in 1:nb_series) {
+        mu_x[i] ~ dnorm(mu_mu, sd = sd_mu)  # Defines the scale/location per series
+    }
+
+    # Likelihood: Observed data modeled as latent x with measurement error
+    for (t in 1:n) {
+        for (i in 1:nb_series) {
+            E_x[t, i] <- mu_x[i] + gamma[t]  # mu_x sets the scale, gamma adds variation
+            x[t, i] ~ dnorm(E_x[t, i], sd = sd_x[i])  # Latent state
+            x_obs[t, i] ~ dnorm(x[t, i], sd = omega_obs[t, i])  # Observation model
+        }
+    }
+})

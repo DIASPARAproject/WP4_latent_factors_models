@@ -1,0 +1,69 @@
+model.nimble <- nimbleCode({
+    ## ----------------------------
+    ## Priors for latent factor
+    ## ----------------------------
+    for (k in 1:K) {
+        # Log-normal parameterization for positive sd_factor
+        log_sd_factor[k] ~ dnorm(0, sd = 1)
+        sd_factor[k] <- exp(log_sd_factor[k])
+        
+        # Keep phi with uniform prior (will use slice sampler, not HMC)
+        phi[k] ~ dunif(-1, 1)
+    }
+    
+    ## ----------------------------
+    ## Priors for mean levels by series and process errors
+    ## ----------------------------
+    mu_mu ~ dnorm(0, sd = 1)  # Prior for global mean
+    
+    # Log-normal parameterization for positive sd_mu
+    log_sd_mu ~ dnorm(0, sd = 1)
+    sd_mu <- exp(log_sd_mu)
+    
+    for (i in 1:nb_series) {
+        mu_x[i] ~ dnorm(mu_mu, sd = sd_mu)
+        
+        # Log-normal parameterization for positive sd_x
+        log_sd_x[i] ~ dnorm(0, sd = 1)
+        sd_x[i] <- exp(log_sd_x[i])
+    }
+    
+    ## ----------------------------
+    ## Priors for loadings
+    ## ----------------------------
+    for (i in 1:nb_series) {
+        for (k in 1:K) {
+            # Free loadings (can be negative or positive)
+            lambda_free[i, k] ~ dnorm(0, sd = 1)
+            
+            # Positive loadings using log-normal parameterization
+            log_lambda_positive[i, k] ~ dnorm(0, sd = 1)
+            lambda_positive[i, k] <- exp(log_lambda_positive[i, k])
+            
+            # Combine based on lambda_type
+            lambda[i, k] <- (lambda_type[i, k] == 1) * lambda_free[i, k] + 
+                           (lambda_type[i, k] == 2) * lambda_positive[i, k]
+        }
+    }
+    
+    ## ----------------------------
+    ## Dynamic processes: latent factors (AR1 process)
+    ## ----------------------------
+    for (k in 1:K) {
+        factor[k, 1] <- 0
+        for (t in 2:n) {
+            factor[k, t] ~ dnorm(phi[k] * factor[k, t - 1], sd = sd_factor[k])
+        }
+    }
+    
+    ## ----------------------------
+    ## Observation equation (likelihood)
+    ## ----------------------------
+    for (t in 1:n) {
+        for (i in 1:nb_series) {
+            E_x[t, i] <- mu_x[i] + sum(lambda[i, 1:K] * factor[1:K, t])
+            x[t, i] ~ dnorm(E_x[t, i], sd = sd_x[i])
+            y_obs[t, i] ~ dnorm(x[t, i], sd = omega_obs[t, i])
+        }
+    }
+})

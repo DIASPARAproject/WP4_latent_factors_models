@@ -1,0 +1,42 @@
+model.nimble <- nimbleCode({
+
+    # Priors for standard deviations (must be positive)
+    sd_mu ~ T(dt(0, 1, 1), 0, Inf)
+    phi ~ dunif(-1, 1)
+
+    for (g in 1:nb_groupes) {
+        sd_beta[g] ~ T(dt(0, 1, 1), 0, Inf)
+        mu_mu[g] ~ dnorm(0, 2)  # Prior for each group's global mean
+    }
+
+    # mu_mu follows a normal distribution centered around 0 (Be careful to center mu_mu correctly in adequation with your raw data)  
+    for (g in 1:nb_groupes) {
+        beta[g, 1] <- 0
+    }
+
+    # Process for gamma (common trend, changes over time)
+    for (t in 1:(n - 1)) {
+        for (g in 1:nb_groupes) {
+            beta[g, t + 1] ~ dnorm(phi * beta[g, t], sd = sd_beta[g])  # Random Walk
+        }
+    }
+
+    # Priors for process errors
+    for (i in 1:nb_series) {
+        sd_x[i] ~ T(dt(0, 1, 1), 0, Inf)
+    }
+
+    # Priors for mu_x (shifts for each series) based on group
+    for (i in 1:nb_series) {
+        mu_x[i] ~ dnorm(mu_mu[groupes[i]], sd = sd_mu)  # mu_x depends on its group
+    }
+
+    # Likelihood: Observed data modeled as latent x with measurement error
+    for (t in 1:n) {
+        for (i in 1:nb_series) {
+            E_x[t, i] <- mu_x[i] + beta[groupes[i], t] # mu_x depends on group, gamma adds common variation, beta group variation
+            x[t, i] ~ dnorm(E_x[t, i], sd = sd_x[i])  # Latent state
+            x_obs[t, i] ~ dnorm(x[t, i], sd = omega_obs[t, i])  # Observation model
+        }
+    }
+})

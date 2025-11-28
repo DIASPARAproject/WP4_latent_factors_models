@@ -1,0 +1,59 @@
+model.nimble <- nimbleCode({
+
+    ## ----------------------------
+    ## Priors for latent factor
+    ## ----------------------------
+    for (k in 1:K) {
+        sd_factor[k] ~ T(dt(0, 1, 1), 0, Inf)
+    	phi[k] ~ dunif(-1, 1)
+
+    }
+
+    ## ----------------------------
+    ## Priors for mean levels by series and process errors
+    ## ----------------------------
+
+    mu_mu ~ dnorm(0, sd = 2)  # Prior for each group's global mean
+    sd_mu ~ T(dt(0, 1, 1), 0, Inf)
+
+    for (i in 1:nb_series) {
+        mu_x[i] ~ dnorm(mu_mu, sd = sd_mu)
+        sd_x[i] ~ T(dt(0, 1, 1), 0, Inf)
+    }
+    
+    ## ----------------------------
+    ## Priors for loadings
+    ## ----------------------------
+
+    for (i in 1:nb_series) {
+        for (k in 1:K) {
+            lambda_free[i, k] ~ dnorm(0, sd = 1)
+            lambda_positive[i, k] ~ T(dnorm(0, sd = 1), 0, Inf)
+            lambda[i, k] <- (lambda_type[i, k] == 1) * lambda_free[i, k] + 
+                           (lambda_type[i, k] == 2) * lambda_positive[i, k]
+        }
+    }
+    
+    ## ----------------------------
+    ## Dynamic processes: latent factors (random walk)
+    ## ----------------------------
+
+    for (k in 1:K) {
+        factor[k, 1] <- 0
+        for (t in 2:n) {
+            factor[k, t] ~ dnorm(phi[k] * factor[k, t - 1], sd = sd_factor[k])
+        }
+    }
+
+    ## ----------------------------
+    ## Observation equation (likelihood)
+    ## ----------------------------
+
+    for (t in 1:n) {
+        for (i in 1:nb_series) {
+            E_x[t, i] <- mu_x[i] + sum(lambda[i, 1:K] * factor[1:K, t])
+            x[t, i] ~ dnorm(E_x[t, i], sd = sd_x[i])
+            y_obs[t, i] ~ dnorm(x[t, i], sd = omega_obs[t, i])
+        }
+    }
+})
