@@ -94,7 +94,7 @@ time_series <- read_csv("data/time_series_matrix.csv")
 uncertainties <- read_csv("data/sigma_obs_matrix.csv")
 
 # Convert input data to matrix format (required by NIMBLE)
-x <- as.matrix(time_series[-1])                  # Time series observations (years × populations)
+y_obs <- as.matrix(time_series[-1])              # Time series observations (years × populations)
 omega_observed  <- as.matrix(uncertainties[-1])
 K <- 3                                           # Number of latent factors to extract
 
@@ -104,8 +104,8 @@ K <- 3                                           # Number of latent factors to e
 
 n.chains <- 3               # Number of parallel MCMC chains
 n.keep <- 5000              # Posterior samples to retain per chain
-n.thin <- 1                 # Thinning interval (saves every 100th sample)
-n.burnin <- 10            # Burn-in period (discarded samples)
+n.thin <- 10                # Thinning interval (saves every 100th sample)
+n.burnin <- 5000            # Burn-in period (discarded samples)
 n.iter <- n.keep * n.thin + n.burnin  # Total iterations per chain
 
 cat("MCMC Setup:\n")
@@ -116,7 +116,7 @@ cat("  Total retained samples:", n.chains * n.keep, "\n\n")
 
 source(file.path(path_scripts,"PCA.R"))
 
-lambda_type <- matrix(0, nrow = ncol(x), ncol = K)
+lambda_type <- matrix(0, nrow = ncol(y_obs), ncol = K)
 lambda_type[triangular_mask == 1 & positive_mask == 0] <- 1  
 lambda_type[triangular_mask == 1 & positive_mask == 1] <- 2  
 
@@ -126,20 +126,19 @@ lambda_type[triangular_mask == 1 & positive_mask == 1] <- 2
 
 source(file.path(path_scripts,"soft_priors.R"))
 register_soft_priors_nimble()
- 
 
 # Create data list for NIMBLE (observations and uncertainties)
 data.nimble <- list(
-  x = x,                             # Matrix of time series observations
-  omega_obs = omega_observed         # Observation error standard deviations
+  y_obs = y_obs                     # Matrix of time series observations
 )
 
 # Create constants list for NIMBLE (dimensions and constraints)
 const.nimble <- list(
-  n = dim(x)[1],                     # Number of time points
-  nb_series = dim(x)[2],             # Number of time series
+  n = dim(y_obs)[1],                     # Number of time points
+  nb_series = dim(y_obs)[2],             # Number of time series
   K = K,
-  lambda_type = lambda_type 
+  lambda_type = lambda_type,
+  omega_obs = omega_observed         # Observation error standard deviations
 )
 
 # Create data directory if it doesn't exist
@@ -161,14 +160,29 @@ rhalfcauchy <- function(n, scale = 1) {
 
 # IMPORTANT: Smart initialization using PCA with chain-specific perturbations
 # This ensures chains start near a sensible solution but explore independently
+
 inits <- function(chain_id = 1) {
-  sd_factor_init_val <- pmax(sd_factor_init * runif(K, 0.8, 1.2), 0.01)
+  
+  set.seed(chain_id * 42)
+  perturb <- function(x, sd = 0.05) x + rnorm(length(x), 0, sd * abs(x) + 1e-4)
+  
+  # --- lambda : initialiser depuis les loadings PCA contraints ---
+  # lambda_free    : free loadings (lambda_type == 1)
+  # lambda_positive: positive constraints (lambda_type == 2)
+  lambda_free_init     <- pca_loadings_constrained                      # nb_series x K
+  lambda_positive_init <- abs(pca_loadings_constrained)                 # nb_series x K
+
+  lambda_free_init     <- apply(lambda_free_init,     2, perturb, sd = 0.05)
+  lambda_positive_init <- pmax(apply(lambda_positive_init, 2, perturb, sd = 0.05), 1e-4)
   list(
-    mu_x = apply(x, 2, mean, na.rm = TRUE),
-    sd_mu = 1,              # Standard deviation of global mean
-    sd_x = rep(1, ncol(x)), # Process noise standard deviations
-    sd_factor = sd_factor_init,                 # Standard deviation of latent factor
-    phi = rep(0.5, K)                          # Mild autocorrelation
+    mu_mu = mean(y_obs, na.rm = TRUE),
+    mu_x  = colMeans(y_obs, na.rm = TRUE),
+    sd_mu     = 0.2,       # Standard deviation of global mean
+    sd_x      = pmax(sd_x_init * runif(ncol(y_obs), 0.9, 1.1), 0.01),   # Process noise standard deviations
+    sd_factor = pmax(sd_factor_init * runif(K, 0.9, 1.1), 0.01),  # Standard deviation of latent factor
+    lambda_free     = lambda_free_init,
+    lambda_positive = lambda_positive_init
+    # phi = runif(K, 0.3, 0.7)             # Mild autocorrelation
   )
 }
 
@@ -257,7 +271,7 @@ if(para == "TRUE") {
     monitor <- c(
       "mu_x", "mu_mu","sd_factor", "sd_x","factor", "phi", "lambda","lambda_free",
       "lambda_positive", "lambda_positive","log_sd_factor","log_sd_x", "log_sd_mu","log_lambda_positive",
-      "E_x", "x", "y_obs")
+      "E_x", "x")
     
     # ------------------------------------------------------------------------------
     # CONFIGURE MCMC WITH HMC - EXCLUDING FIXED NODES

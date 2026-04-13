@@ -39,7 +39,7 @@ model.nimble <- nimbleCode({
         for (i in 1:nb_series) {
             E_x[t, i] <- mu_x[i] + gamma[t] + beta[groupes[i], t] # mu_x depends on group, gamma adds common variation, beta group variation
             x[t, i] ~ dnorm(E_x[t, i], sd = sd_x[i])  # Latent state
-            x_obs[t, i] ~ dnorm(x[t, i], sd = omega_obs[t, i])  # Observation model
+            y_obs[t, i] ~ dnorm(x[t, i], sd = omega_obs[t, i])  # Observation model
         }
     }
 })

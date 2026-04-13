@@ -94,18 +94,36 @@ time_series <- read_csv("data/time_series_matrix.csv")
 uncertainties <- read_csv("data/sigma_obs_matrix.csv")
 
 # Convert input data to matrix format (required by NIMBLE)
-x <- as.matrix(time_series[-1])                  # Time series observations (years × populations)
+y_obs <- as.matrix(time_series[-1])              # Time series observations (years × populations)
 omega_observed  <- as.matrix(uncertainties[-1])
-K <- 3                                           # Number of latent factors to extract
+K <- 3                                     # Number of latent factors to extract
+
+n_truncate <- 3
+
+years_full <- merged_table$year
+n_total    <- nrow(y_obs)
+n_fit      <- n_total - n_truncate
+
+cat("Années totales    :", n_total, "(", min(years_full), "–", max(years_full), ")\n")
+cat("Années pour le fit:", n_fit,   "(", min(years_full), "–", years_full[n_fit], ")\n")
+cat("Années tronquées  :", n_truncate, "(", years_full[n_fit + 1], "–", max(years_full), ")\n\n")
+
+# Sauvegarder les données complètes pour la comparaison post-hoc
+y_obs_full <- y_obs
+
+# Masquer les 3 dernières années (→ NA = prédites par le modèle)
+y_obs_truncated <- y_obs
+y_obs_truncated[(n_fit + 1):n_total, ] <- NA
+
 
 # ------------------------------------------------------------------------------
 # MCMC CONFIGURATION PARAMETERS
 # ------------------------------------------------------------------------------
 
-n.chains <- 3                  # Number of parallel MCMC chains
-n.keep <- 5000                 # Posterior samples to retain per chain
-n.thin <- 1                   # Thinning interval (saves every 100th sample)
-n.burnin <- 2000            # Burn-in period (discarded samples)
+n.chains <- 3               # Number of parallel MCMC chains
+n.keep <- 5000              # Posterior samples to retain per chain
+n.thin <- 400                 # Thinning interval (saves every 100th sample)
+n.burnin <- 200000           # Burn-in period (discarded samples)
 n.iter <- n.keep * n.thin + n.burnin  # Total iterations per chain
 
 cat("MCMC Setup:\n")
@@ -116,7 +134,8 @@ cat("  Total retained samples:", n.chains * n.keep, "\n\n")
 
 source(file.path(path_scripts,"PCA.R"))
 
-lambda_type <- matrix(0, nrow = ncol(x), ncol = K)
+y_obs <- y_obs_truncated
+lambda_type <- matrix(0, nrow = ncol(y_obs), ncol = K)
 lambda_type[triangular_mask == 1 & positive_mask == 0] <- 1  
 lambda_type[triangular_mask == 1 & positive_mask == 1] <- 2  
 
@@ -126,16 +145,16 @@ lambda_type[triangular_mask == 1 & positive_mask == 1] <- 2
 
 # Create data list for NIMBLE (observations and uncertainties)
 data.nimble <- list(
-  x = x,                             # Matrix of time series observations
-  omega_obs = omega_observed         # Observation error standard deviations
+  y_obs = y_obs                     # Matrix of time series observations
 )
 
 # Create constants list for NIMBLE (dimensions and constraints)
 const.nimble <- list(
-  n = dim(x)[1],                     # Number of time points
-  nb_series = dim(x)[2],             # Number of time series
+  n = dim(y_obs)[1],                     # Number of time points
+  nb_series = dim(y_obs)[2],             # Number of time series
   K = K,
-  lambda_type = lambda_type 
+  lambda_type = lambda_type,
+  omega_obs = omega_observed         # Observation error standard deviations
 )
 
 # Create data directory if it doesn't exist
@@ -158,14 +177,31 @@ rhalfcauchy <- function(n, scale = 1) {
 
 # IMPORTANT: Smart initialization using PCA with chain-specific perturbations
 # This ensures chains start near a sensible solution but explore independently
+
 inits <- function(chain_id = 1) {
-  # Initialize sd_factor based on empirical PCA variances
-  sd_factor_init_val <- pmax(sd_factor_init * runif(K, 0.8, 1.2), 0.01)
+  
+  set.seed(chain_id * 42)
+  perturb <- function(x, sd = 0.05) x + rnorm(length(x), 0, sd * abs(x) + 1e-4)
+
+  lambda_free_init     <- pca_loadings_constrained
+  lambda_positive_init <- abs(pca_loadings_constrained)
+  
+  lambda_free_init     <- apply(lambda_free_init,     2, perturb, sd = 0.05)
+  lambda_positive_init <- pmax(apply(lambda_positive_init, 2, perturb, sd = 0.05), 1e-4)
+  
   list(
-    sd_mu = rhalfcauchy(1, scale = 1),              # Standard deviation of global mean
-    sd_x = rep(rhalfcauchy(1, scale = 1), ncol(x)), # Process noise standard deviations
-    sd_factor = sd_factor_init_val,                 # Standard deviation of latent factor
-    phi = runif(K, -1, 1)                           # Mild autocorrelation
+    mu_mu = mean(y_obs, na.rm = TRUE),
+    mu_x  = colMeans(y_obs, na.rm = TRUE),
+    
+    sd_mu     = 0.2,
+    sd_x      = pmax(sd_x_init * runif(ncol(y_obs), 0.9, 1.1), 0.01),
+    
+    sd_factor = pmax(sd_factor_init * runif(K, 0.9, 1.1), 0.01),
+    
+    lambda_free     = lambda_free_init,
+    lambda_positive = lambda_positive_init
+    
+    # phi = runif(K, 0.3, 0.7)
   )
 }
 
@@ -231,7 +267,7 @@ if(para == "TRUE") {
     
     # Load NIMBLE model definition from external file
     # This file contains the Bayesian DFA model specification
-    source("model/DFA_AR1_V1_bis.txt")
+    source("model/DFA_AR1.txt")
     
     # Create NIMBLE model object
     # This builds the computational graph for the Bayesian model
@@ -247,8 +283,8 @@ if(para == "TRUE") {
     # These are the quantities we want to estimate from the posterior
     monitor <- c(
       "mu_x", "mu_mu","sd_factor", "sd_x", "sd_mu",
-      "factor", "phi", "lambda","lambda_free", "lambda_positive",
-      "E_x", "x", "y_obs")
+      "factor", "lambda","lambda_free", "lambda_positive",
+      "E_x", "x","phi")
     
     # Configure MCMC algorithm
     # enableWAIC = TRUE calculates model selection criterion
@@ -336,7 +372,7 @@ if(para == "TRUE") {
   const.nimble <- readRDS("data/const.rds")
   
   # Recreate model in main R session
-  source("model/DFA_AR1_V1_bis.txt")
+  source("model/DFA_AR1.txt")
   myModel <- nimbleModel(code = model.nimble, name = 'model.nimble',
                          constants = const.nimble, data = data.nimble)
   CmyModel <- compileNimble(myModel)

@@ -1,78 +1,56 @@
 # ==============================================================================
-# MODEL CONFIGURATION AND FILE NAMING
+# KL_data_prep_trunc.R
 # ==============================================================================
-# Determine which model type to analyze and create appropriate file names
+# PURPOSE: Extract posterior samples of x[t,s] from the truncated model MCMC
+# for the years of interest (years_to_analyze).
+#
+# Unlike the original KL_data_prep.R which extracted E_x values,
+# here we extract x[t,s] — the latent state — which is what the truncated
+# model predicts for the masked years.
+#
+# INPUT:
+#   - mcmc_matrix       : MCMC samples as matrix (iterations × parameters)
+#   - years_to_analyze  : integer vector of time indices (e.g. c(49, 50, 51))
+#   - latent_process    : string identifier for file naming ("RE", "RW", "AR1")
+#   - path_results      : output directory path
+#
+# OUTPUT:
+#   - truncated_model_data : data.frame (iterations × x[t,s] columns)
+#   - CSV saved to results/
+# ==============================================================================
 
-if (analyze_truncated) {
-  # Configuration for truncated model analysis
-  truncation_suffix <- "T"
-  model_type <- "truncated"
-  cat("✓ Analyzing TRUNCATED model\n")
-} else {
-  # Configuration for complete model analysis  
-  truncation_suffix <- ""
-  model_type <- "complete"
-  cat("✓ Analyzing COMPLETE model\n")
+cat("Extracting x[t,s] samples for truncated years...\n")
+
+# Build regex pattern matching x[t, s] for all years_to_analyze
+year_pattern <- paste(years_to_analyze, collapse = "|")
+x_pattern    <- paste0("^x\\[(", year_pattern, "), [0-9]+\\]$")
+
+# Find matching columns in MCMC matrix
+x_col_indices <- grep(x_pattern, colnames(mcmc_matrix))
+x_col_names   <- colnames(mcmc_matrix)[x_col_indices]
+
+# Validate
+if (length(x_col_indices) == 0) {
+  stop("ERROR: No x[t,s] columns found for years_to_analyze. ",
+       "Check that 'x' is monitored in MCMC and years_to_analyze is correct.")
 }
 
-# Generate standardized filename based on latent process and model type
-filename <- paste0("Ex_summary_", latent_process, truncation_suffix, ".csv")
-filepath <- file.path(path_processed, filename)
-cat("Output file:", filename, "\n\n")
+cat("✓ Found", length(x_col_indices), "x[t,s] columns\n")
+cat("  Sample column names:", paste(head(x_col_names, 5), collapse = ", "), "\n")
 
-# ==============================================================================
-# STEP 1: EXTRACT E_x VALUES FROM MCMC MATRIX
-# ==============================================================================
-# E_x values represent expected values from Bayesian model sampling
-# Format: E_x[time_point, series_number] - e.g., E_x[49, 1], E_x[50, 2]
+# Extract as data.frame (each row = 1 MCMC iteration)
+truncated_model_data <- as.data.frame(mcmc_matrix[, x_col_indices, drop = FALSE],
+                                      check.names = FALSE)
 
-cat("Searching for E_x variables in MCMC output...\n")
+cat("Data dimensions:", nrow(truncated_model_data), "iterations ×",
+    ncol(truncated_model_data), "x[t,s] variables\n")
 
-# Define regex pattern to match E_x columns for specific time points (49, 50, 51)
-# This pattern captures: E_x[49,1], E_x[50,2], etc.
-Ex_pattern <- "^E_x\\[(49|50|51), [0-9]+\\]$"
-
-# Find all matching column indices in the MCMC matrix
-Ex_col_indices <- grep(Ex_pattern, colnames(mcmc_matrix))
-Ex_col_names <- colnames(mcmc_matrix)[Ex_col_indices]
-
-# Validation: Check if E_x columns were found
-if (length(Ex_col_indices) > 0) {
-  cat("✓ Found", length(Ex_col_indices), "E_x columns matching pattern\n")
-  
-  # Extract E_x data while preserving MCMC iteration structure
-  # Rows = MCMC iterations, Columns = E_x[t,s] variables
-  Ex_wide_data <- mcmc_matrix[, Ex_col_indices, drop = FALSE]
-  
-  # Convert to data frame for easier manipulation
-  Ex_wide_df <- as.data.frame(Ex_wide_data, check.names = FALSE)
-  
-  # Display extraction summary
-  cat("Data dimensions:", nrow(Ex_wide_df), "iterations ×", 
-      ncol(Ex_wide_df), "E_x variables\n")
-  cat("Sample column names:", paste(head(colnames(Ex_wide_df), 5), collapse = ", "), "\n")
-  
-} else {
-  stop("ERROR: No E_x columns found. Check MCMC matrix column naming convention.")
-}
-# ==============================================================================
-# STEP 2: SAVE EXTRACTED DATA
-# ==============================================================================
-# Save wide format data for later analysis or sharing
-
-cat("Saving wide format data...\n")
+# Save to disk
+filename_trunc <- paste0("x_trunc_", latent_process, ".csv")
 write.csv(
-  Ex_wide_df,
-  file = file.path(path_results, filename),
+  truncated_model_data,
+  file      = file.path(path_results, filename_trunc),
   row.names = FALSE
 )
 
-cat("✓ Data saved to:", file.path(path_results, filename), "\n")
-cat("ℹ️  Format: Each row = 1 MCMC iteration, Each column = E_x[t,s]\n")
-
-# Display data structure preview
-cat("\n📋 Data structure preview:\n")
-str(Ex_wide_df[1:3, 1:5])  # Show first 3 rows and 5 columns
-
-cat("\nSummary statistics (first 5 variables):\n")
-print(summary(Ex_wide_df[, 1:min(5, ncol(Ex_wide_df))]))
+cat("✓ Data saved to:", filename_trunc, "\n")

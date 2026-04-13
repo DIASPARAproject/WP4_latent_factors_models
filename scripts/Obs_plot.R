@@ -1,12 +1,12 @@
 # ==============================================================================
-# OPTIMIZED EXTRACTION OF y_obs VALUES FROM MCMC OUTPUT
+# OPTIMIZED EXTRACTION OF x VALUES FROM MCMC OUTPUT
 # ==============================================================================
-# This script extracts the expected values y_obs[t,i] from MCMC samples and 
+# This script extracts the expected values x[t,i] from MCMC samples and 
 # creates summary statistics (mean, 95% credible intervals) for plotting
 # against observed data.
 
 # ==============================================================================
-# STEP 1: EXTRACT AND SUMMARIZE y_obs VALUES
+# STEP 1: EXTRACT AND SUMMARIZE x VALUES
 # ==============================================================================
 if (analyze_truncated) {
   # Truncated model analysis
@@ -22,33 +22,33 @@ if (analyze_truncated) {
 
 # Pre-allocate list to store results for each series
 # This is more efficient than growing the list dynamically
-y_obs_summary_list <- vector("list", n_series)
+x_summary_list <- vector("list", n_series)
 
-# Loop through each series to extract corresponding y_obs columns
+# Loop through each series to extract corresponding x columns
 for (i in 1:n_series) {
   
-  # Create regex pattern to match y_obs[t, i] columns for series i
-  # Pattern matches: y_obs[1, i], y_obs[2, i], ..., y_obs[n, i]
-  pattern <- paste0("^y_obs\\[[0-9]+, ", i, "\\]$")
+  # Create regex pattern to match x[t, i] columns for series i
+  # Pattern matches: x[1, i], x[2, i], ..., x[n, i]
+  pattern <- paste0("^x\\[[0-9]+, ", i, "\\]$")
   
   # Find column indices that match the pattern
-  y_obs_cols <- grep(pattern, colnames(mcmc_matrix))
+  x_cols <- grep(pattern, colnames(mcmc_matrix))
   
   # Check if columns were found (defensive programming)
-  if (length(y_obs_cols) > 0) {
+  if (length(x_cols) > 0) {
     
     # Extract MCMC samples for this series
     # drop=FALSE ensures we keep matrix structure even for single column
-    y_obs_data <- mcmc_matrix[, y_obs_cols, drop = FALSE]
+    x_data <- mcmc_matrix[, x_cols, drop = FALSE]
     
     # Compute summary statistics across MCMC iterations
     # colMeans() is faster than apply(, 2, mean) for large matrices
-    y_obs_summary_list[[i]] <- data.frame(
+    x_summary_list[[i]] <- data.frame(
       serie = labels[i],              # Series identifier
       year = years,                             # Time axis (years)
-      mean = colMeans(y_obs_data),                 # Posterior mean
-      lower = apply(y_obs_data, 2, quantile, probs = 0.025),  # Lower 95% CI
-      upper = apply(y_obs_data, 2, quantile, probs = 0.975),  # Upper 95% CI
+      mean = colMeans(x_data),                 # Posterior mean
+      lower = apply(x_data, 2, quantile, probs = 0.025),  # Lower 95% CI
+      upper = apply(x_data, 2, quantile, probs = 0.975),  # Upper 95% CI
       row.names = NULL                          # Remove row names for cleaner output
     )
   } else {
@@ -62,23 +62,23 @@ for (i in 1:n_series) {
 # ==============================================================================
 # Combine all series into a single data frame for easier manipulation
 # do.call(rbind, list) is more efficient than multiple rbind() calls
-y_obs_summary_table_tot <- do.call(rbind, y_obs_summary_list)
+x_summary_table_tot <- do.call(rbind, x_summary_list)
 
 # Reorganize columns for better readability (optional)
 # Solution 1: Use dplyr::select() to avoid conflicts
-y_obs_summary_table_tot <- y_obs_summary_table_tot %>%
+x_summary_table_tot <- x_summary_table_tot %>%
   dplyr::select(serie, year, mean, lower, upper)
 
 # Display first few rows to check results
-head(y_obs_summary_table_tot)
+head(x_summary_table_tot)
 
 # Create filename based on latent process and truncation status
-filename_tot <- paste0("Ex_summary_tot_", latent_process, truncation_suffix, ".csv")
+filename_tot <- paste0("x_summary_tot_", latent_process, truncation_suffix, ".csv")
 filepath_tot <- file.path(path_processed, filename_tot)
 
 # Save results to CSV file for later use or sharing
 write.csv(
-  y_obs_summary_table_tot,
+  x_summary_table_tot,
   file = file.path(path_results, filename_tot),
   row.names = FALSE
 )
@@ -110,7 +110,7 @@ for (i in 1:n_series) {
   label_name <- paste0(labels[i])
   
   # Filter model predictions for current series
-  model_data <- y_obs_summary_table_tot %>% 
+  model_data <- x_summary_table_tot %>% 
     filter(serie == labels[i])
   
   # Filter observed data for current labels
@@ -181,7 +181,7 @@ cat("Saving individual plots as PNG files...\n")
 for (i in 1:length(plot_list)) {
   
   # Create filename with series name and model type
-  png_filename <- paste0("y_obs_plot_", labels[i], "_", model_type, ".png")
+  png_filename <- paste0("x_plot_", labels[i], "_", model_type, ".png")
   png_filepath <- file.path(plots_directory, png_filename)
   
   # Save plot as high-quality PNG
@@ -217,7 +217,7 @@ for (page in seq_len(n_pages)) {
   plots_subset <- plot_list[start_idx:end_idx]
   
   # Create filename for combined plot page
-  combined_filename <- paste0("Ex_plots_combined_page", page, "_", model_type, ".png")
+  combined_filename <- paste0("x_plots_combined_page", page, "_", model_type, ".png")
   combined_filepath <- file.path(plots_directory, combined_filename)
   
   # Create and save combined plot

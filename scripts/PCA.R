@@ -3,12 +3,12 @@
 # ==============================================================================
 
 # Center the data (PCA requires centered data)
-x_centered <- scale(x, center = TRUE, scale = FALSE)
+y_centered <- scale(y_obs, center = TRUE, scale = FALSE)
 
 # Perform PCA
 # Note: prcomp works on rows as observations, columns as variables
 # So our time points are observations, series are variables
-pca_result <- prcomp(x_centered, center = FALSE, scale. = FALSE)
+pca_result <- prcomp(y_centered, center = FALSE, scale. = FALSE)
 
 # Extract PCA components
 pca_loadings <- pca_result$rotation[, 1:K]  # How each series loads on each PC
@@ -90,7 +90,7 @@ create_optimized_triangular_mask <- function(pca_loadings, K, nb_series) {
   return(mask)
 }
 
-triangular_mask <- create_optimized_triangular_mask(pca_loadings, K, ncol(x))
+triangular_mask <- create_optimized_triangular_mask(pca_loadings, K, ncol(y_obs))
 
 # Show which series are set to zero for each factor
 cat("=== SERIES WITH ZERO LOADINGS (WEAKEST LOADINGS) ===\n")
@@ -150,15 +150,15 @@ colnames(mask_df_plot) <- c("Series", "Factor", "Allowed")
 mask_df_plot$Series <- as.numeric(mask_df_plot$Series)
 mask_df_plot$Factor <- as.numeric(mask_df_plot$Factor)
 
-ggplot(mask_df_plot, aes(x = Factor, y = Series, fill = factor(Allowed))) +
+ggplot(mask_df_plot, aes(y_obs = Factor, y = Series, fill = factor(Allowed))) +
   geom_tile(color = "white", linewidth = 0.5) +
   scale_fill_manual(values = c("0" = "gray90", "1" = "steelblue"),
                     labels = c("0" = "Fixed at 0", "1" = "Estimated"),
                     name = "Loading") +
-  scale_y_reverse(breaks = 1:ncol(x)) +
+  scale_y_reverse(breaks = 1:ncol(y_obs)) +
   scale_x_continuous(breaks = 1:K) +
   labs(title = "Strict Triangular Mask (PCA-Informed)", 
-       x = "Factor", y = "Series") +
+       y_obs = "Factor", y = "Series") +
   theme_minimal(base_size = 11) +
   theme(panel.grid = element_blank(),
         legend.position = "right")
@@ -177,7 +177,7 @@ for (k in 1:K) {
           xlab = "Series",
           col = bar_colors,
           border = border_colors,
-          names.arg = 1:ncol(x))
+          names.arg = 1:ncol(y_obs))
   abline(h = 0, lty = 2, col = "black")
   
   # Add legend on first plot
@@ -217,7 +217,7 @@ cat("Constrained loadings applied. Sign identification enforced.\n\n")
 
 # Extract empirical SDs from PCA for initialization
 sd_factor_init <- apply(pca_factors, 2, sd)
-sd_x_init <- apply(x - colMeans(x), 2, sd)
+sd_x_init <- apply(y_obs - colMeans(y_obs), 2, sd)
 
 cat("=== EMPIRICAL STANDARD DEVIATIONS ===\n")
 cat("Factor SDs (from PCA):\n")
@@ -258,7 +258,7 @@ for (k in 1:K) {
           xlab = "Series",
           col = bar_colors,
           border = border_colors,
-          names.arg = 1:ncol(x))
+          names.arg = 1:ncol(y_obs))
   abline(h = 0, lty = 2)
 }
 par(mfrow = c(1, 1))

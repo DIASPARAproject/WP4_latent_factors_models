@@ -6,46 +6,49 @@
 #
 # The KL divergence measures the information loss when using truncated model
 # predictions instead of complete model predictions. This helps quantify
-# the impact of data truncation on model performance and prediction accuracy.
+# the impact of data truncation on model performance and prediction accuracy.+
+# Higher values indicate worse forecasting.
 #
 # Key concepts:
 # - KL divergence: Mathematical measure of how one probability distribution 
 #   differs from another
-# - y_obs : Observed values from MCMC (Markov Chain Monte Carlo) sampling
+# - y_obs : Observed values
 # - Temporal models: RE (Random Effects), RW (Random Walk), AR (Autoregressive)
 # ==============================================================================
 
 # ==============================================================================
-# CONFIGURATION PARAMETERS for KULLBACK-LEIBLER
+# CONFIGURATION PARAMETERS
 # ==============================================================================
-# USER CONFIGURATION - MODIFY THESE VALUES
-years_to_analyze <- c(49, 50, 51)   # Model years to analyze (corresponding to 2019, 2020, 2021 for example) 
-latent_process <- "AR1"             # Specify the latent process of the model: "RE", "RW", or "AR"
-analyze_truncated <- FALSE          # Set to TRUE to analyze truncated model (with NA values for n years), FALSE for complete model
+
+# Time indices of the truncated years in the model (e.g., 49, 50, 51 = 2019-2021)
+years_to_analyze   <- c(49, 50, 51)
+
+# Corresponding calendar years (for display)
+base_calendar_year <- 1971   # year 1 in the model = 1971
 
 # ==============================================================================
-# DATA PREPARATION
+# DATA PREPARATION AND KL DIVERGENCE INDICES
 # ==============================================================================
 # PURPOSE: This script prepares the raw MCMC (Markov Chain Monte Carlo) output 
-# data for KL divergence analysis. It extracts and formats the E_x values 
+# data for KL divergence analysis. It extracts and formats the x values 
 # (expected survival probabilities) from the Bayesian model chains, converting 
 # them from the raw MCMC matrix format into a structured, analysis-ready format.
 #
 # WHAT IT DOES:
-# - Searches for E_x variables in the MCMC output using regex patterns
+# - Searches for x variables in the MCMC output using regex patterns
 # - Extracts time-series data for specific time points (typically years 49, 50, 51)
 # - Converts wide-format MCMC iterations into a clean data structure
 # - Validates data integrity and handles missing values
 #
-# EXPECTED OUTPUT: Ex_summary_[model_type].csv - Contains extracted E_x values 
+# EXPECTED OUTPUT: x_summary_[model_type].csv - Contains extracted x values 
 # in wide format where each row represents one MCMC iteration and each column 
-# represents E_x[time, series]
-# ==============================================================================
+# represents x[time, series]
 
-source(file.path(path_scripts,"KL_data_prep.R"))
+mcmc_matrix    <- as.matrix(readRDS(file.path(path_results, "mcmc_samplesDFATRQ.rds")))
+source(file.path(path_scripts, "KL_data_prep.R"))       # extracts x[t,s] samples
 
 # ==============================================================================
-# CALCULATE KL DIVERGENCE INDICES
+# KL DIVERGENCE INDICES
 # ==============================================================================
 # PURPOSE: This is the core analytical script that calculates Kullback-Leibler 
 # divergence between the complete and truncated model predictions. KL divergence 
@@ -62,33 +65,8 @@ source(file.path(path_scripts,"KL_data_prep.R"))
 # direction indicators, and series/year identifiers
 # ==============================================================================
 
-complete_model_data <- read_csv("results/Ex_summary_AR1.csv")
-truncated_model_data    <- read_csv("results/Ex_summary_AR1T.csv")
-
-source(file.path(path_scripts,"KL_index_values.R"))
-
-# ==============================================================================
-# GENERATE COMPARISON VISUALIZATIONS
-# ==============================================================================
-# PURPOSE: Creates detailed comparison plots showing how complete and truncated 
-# models perform for individual time series. These visualizations overlay model 
-# predictions with observed data, allowing visual assessment of model accuracy 
-# and the impact of data truncation on prediction quality.
-#
-# VISUALIZATION ELEMENTS:
-# - Observed data: Historical time series as gray reference lines
-# - Complete model: Blue lines with confidence bands showing full-data predictions
-# - Truncated model: Red dashed lines with confidence bands showing limited-data predictions
-# - Uncertainty quantification: Ribbon plots showing prediction intervals
-#
-# EXPECTED OUTPUT: Stored plot objects in plot_list_compare variable
-# Individual comparison plots for each selected time series label
-# ==============================================================================
-
-Ex_summary_tot <- read_csv("results/Ex_summary_tot_AR1.csv")
-Ex_summary_totT    <- read_csv("results/Ex_summary_tot_AR1T.csv")
-
-source(file.path(path_scripts,"Plot_KL_1label_comp.R"))
+source(file.path(path_scripts, "KL_index_values.R"))   # computes KL vs y_obs
+KL <- KL_results
 
 # ==============================================================================
 # CREATE COMPREHENSIVE MULTI-MODEL ANALYSIS
@@ -109,9 +87,5 @@ source(file.path(path_scripts,"Plot_KL_1label_comp.R"))
 # - Comprehensive multi-panel plot comparing RE, RW, and AR1 models
 # - Statistical summary tables of cross-model performance differences
 # ==============================================================================
-
-KL_RE <- read_csv("results/KL_RE.csv")
-KL_RW <- read_csv("results/KL_RW.csv")
-KL_AR <- read_csv("results/KL_AR1.csv")
 
 source(file.path(path_scripts,"Plot_KL_3_years_latent_processes.R"))
